@@ -82,6 +82,7 @@ def build_records(
                         "file": pdf_path.name,
                         "source": source,
                         "subject": subject,
+                        "visibility": settings.default_visibility,
                         "page": page.page_number,
                         "chunk_index": chunk.index,
                         "file_hash": file_hash,

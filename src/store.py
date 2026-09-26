@@ -17,12 +17,21 @@ class ChunkRecord:
     metadata: dict[str, Any]
 
 
-def build_where(subject: str | None = None, source: str | None = None) -> dict[str, Any] | None:
+def build_where(
+    subject: str | None = None,
+    source: str | None = None,
+    visibility: Sequence[str] | None = None,
+) -> dict[str, Any] | None:
     clauses: list[dict[str, Any]] = []
     if subject:
         clauses.append({"subject": subject})
     if source:
         clauses.append({"source": source})
+    if visibility:
+        tiers = list(visibility)
+        clauses.append(
+            {"visibility": tiers[0]} if len(tiers) == 1 else {"visibility": {"$in": tiers}}
+        )
     if not clauses:
         return None
     return clauses[0] if len(clauses) == 1 else {"$and": clauses}

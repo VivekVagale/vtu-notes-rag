@@ -14,3 +14,6 @@ data/index/
 
 # local editor/agent config
 .claude/
+
+# service log
+api.log

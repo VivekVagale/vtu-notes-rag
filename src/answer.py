@@ -27,6 +27,7 @@ class Answer:
     exam_mode: bool = False
     marks: int = 10
     subject: str | None = None
+    scopes: list[str] | None = None
     elapsed_s: float = 0.0
     warnings: list[str] = field(default_factory=list)
 
@@ -44,6 +45,7 @@ class Answer:
             "exam_mode": self.exam_mode,
             "marks": self.marks,
             "subject": self.subject,
+            "scopes": self.scopes,
             "elapsed_s": round(self.elapsed_s, 2),
             "warnings": self.warnings,
             "sources": [s.to_dict() for s in self.sources],
@@ -99,13 +101,14 @@ class RagEngine:
         k: int | None = None,
         exam_mode: bool = False,
         marks: int = 10,
+        scopes: Sequence[str] | None = None,
     ) -> Answer:
         started = time.perf_counter()
         question = (question or "").strip()
         if not question:
             raise ValueError("question is empty")
 
-        sources = self.retriever.retrieve(question, k=k, subject=subject)
+        sources = self.retriever.retrieve(question, k=k, subject=subject, scopes=scopes)
         model = "-"
 
         if not sources:
@@ -118,6 +121,7 @@ class RagEngine:
                 exam_mode=exam_mode,
                 marks=marks,
                 subject=subject,
+                scopes=list(scopes) if scopes else None,
                 elapsed_s=time.perf_counter() - started,
             )
 
@@ -145,6 +149,7 @@ class RagEngine:
             exam_mode=exam_mode,
             marks=marks,
             subject=subject,
+            scopes=list(scopes) if scopes else None,
             elapsed_s=time.perf_counter() - started,
             warnings=validate_citations(text, sources),
         )

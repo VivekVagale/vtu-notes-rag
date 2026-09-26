@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Sequence
 
 from .config import Settings, get_settings
 from .embeddings import Embedder, get_embedder
@@ -21,6 +21,7 @@ class Source:
     subject: str
     source: str
     chunk_id: str
+    visibility: str
     score: float
     rerank_score: float
     extra: dict[str, Any] = field(default_factory=dict)
@@ -39,6 +40,7 @@ class Source:
             "page": self.page,
             "subject": self.subject,
             "source": self.source,
+            "visibility": self.visibility,
             "chunk_id": self.chunk_id,
             "score": round(self.score, 4),
             "rerank_score": round(self.rerank_score, 4),
@@ -56,6 +58,7 @@ def hit_to_source(hit: dict[str, Any]) -> Source:
         subject=str(meta.get("subject", "General")),
         source=str(meta.get("source", meta.get("file", "unknown.pdf"))),
         chunk_id=str(hit.get("id", "")),
+        visibility=str(meta.get("visibility", "curated")),
         score=float(hit.get("score", 0.0)),
         rerank_score=float(hit.get("rerank_score", hit.get("score", 0.0))),
         extra={"lexical_score": hit.get("lexical_score")},
@@ -82,9 +85,11 @@ class Retriever:
         *,
         k: int | None = None,
         subject: str | None = None,
+        scopes: Sequence[str] | None = None,
         fetch_k: int | None = None,
         keep_per_page: int = 2,
     ) -> list[Source]:
+        """scopes limits which library tiers are searched (curated/private/community)."""
         question = (question or "").strip()
         if not question:
             return []
@@ -93,7 +98,10 @@ class Retriever:
         if self.reranker.name == "none":
             candidates = top_k
 
-        where = build_where(subject=subject if subject and subject != "All" else None)
+        where = build_where(
+            subject=subject if subject and subject != "All" else None,
+            visibility=scopes,
+        )
         hits = self.store.query(self.embedder.embed_query(question), candidates, where)
         if not hits:
             return []

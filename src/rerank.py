@@ -22,6 +22,14 @@ _STOPWORDS = {
 }
 
 
+#: Contributed material is searchable but never outranks vetted notes on a tie.
+TRUST = {"curated": 1.0, "private": 1.0, "community": 0.94}
+
+
+def trust_of(hit: dict[str, Any]) -> float:
+    return TRUST.get(str((hit.get("metadata") or {}).get("visibility", "curated")), 0.9)
+
+
 def _terms(text: str) -> list[str]:
     return [w for w in _WORD_RE.findall(text.lower()) if w not in _STOPWORDS and len(w) > 2]
 
@@ -53,9 +61,8 @@ class LexicalReranker(Reranker):
             bonus = 0.05 if phrase and phrase in body else 0.0
             vec = float(hit.get("score", 0.0))
             hit["lexical_score"] = coverage
-            hit["rerank_score"] = min(
-                1.0, self.vector_weight * vec + (1.0 - self.vector_weight) * coverage + bonus
-            )
+            blended = self.vector_weight * vec + (1.0 - self.vector_weight) * coverage + bonus
+            hit["rerank_score"] = min(1.0, blended) * trust_of(hit)
         hits.sort(key=lambda h: h["rerank_score"], reverse=True)
         return hits[:top_k]
 
@@ -84,7 +91,7 @@ class CrossEncoderReranker(Reranker):
         except Exception:  # model missing / offline -> degrade, never crash a query
             return self._fallback.rerank(query, hits, top_k)
         for hit, raw in zip(hits, scores):
-            hit["rerank_score"] = 1.0 / (1.0 + math.exp(-float(raw)))
+            hit["rerank_score"] = (1.0 / (1.0 + math.exp(-float(raw)))) * trust_of(hit)
         hits.sort(key=lambda h: h["rerank_score"], reverse=True)
         return hits[:top_k]
 

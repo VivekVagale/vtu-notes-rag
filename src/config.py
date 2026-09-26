@@ -91,6 +91,9 @@ class Settings:
     reranker: str  # none | lexical | cross-encoder
     cross_encoder_model: str
 
+    # --- library tiers ---
+    default_visibility: str
+
     # --- llm ---
     llm_provider: str  # anthropic | ollama | extractive
     anthropic_model: str
@@ -135,6 +138,7 @@ def load_settings(**overrides: Any) -> Settings:
         embed_model=_str("EMBED_MODEL", "BAAI/bge-small-en-v1.5"),
         embed_backend=_str("EMBED_BACKEND", "sentence-transformers").lower(),
         embed_batch_size=_int("EMBED_BATCH_SIZE", 32),
+        default_visibility=_str("DEFAULT_VISIBILITY", "curated"),
         top_k=_int("TOP_K", 5),
         fetch_k=_int("FETCH_K", 20),
         reranker=_str("RERANKER", "lexical").lower(),
