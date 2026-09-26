@@ -1,0 +1,20 @@
+# --- PDF + chunking ---
+pymupdf>=1.24.0
+
+# --- local embeddings (free, no API) ---
+sentence-transformers>=3.0.0
+torch>=2.2.0
+
+# --- vector store ---
+chromadb>=0.5.0
+
+# --- LLM providers (swappable via .env) ---
+anthropic>=0.40.0       # LLM_PROVIDER=anthropic
+requests>=2.31.0        # LLM_PROVIDER=ollama
+
+# --- config / UI ---
+python-dotenv>=1.0.0
+streamlit>=1.35.0
+
+# --- tests ---
+pytest>=8.0.0

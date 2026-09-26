@@ -1,0 +1,16 @@
+# venv / python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+install.log
+
+# secrets
+.env
+
+# your notes and the index built from them stay local
+data/pdfs/**/*.pdf
+data/index/
+
+# local editor/agent config
+.claude/
