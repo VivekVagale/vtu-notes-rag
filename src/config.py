@@ -101,6 +101,8 @@ class Settings:
     upload_max_pages: int
     quota_docs_total: int
     quota_bytes_total: int
+    auth_secret: str | None
+    allow_dev_login: bool
 
     # --- llm ---
     llm_provider: str  # anthropic | ollama | extractive
@@ -158,6 +160,8 @@ def load_settings(**overrides: Any) -> Settings:
         upload_max_pages=_int("UPLOAD_MAX_PAGES", 400),
         quota_docs_total=_int("QUOTA_DOCS_TOTAL", 30),
         quota_bytes_total=_int("QUOTA_BYTES_TOTAL", 314572800),
+        auth_secret=_opt_str("AUTH_SECRET"),
+        allow_dev_login=_bool("ALLOW_DEV_LOGIN", True),
         top_k=_int("TOP_K", 5),
         fetch_k=_int("FETCH_K", 20),
         reranker=_str("RERANKER", "lexical").lower(),

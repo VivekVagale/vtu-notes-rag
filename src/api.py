@@ -18,13 +18,19 @@ from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from . import api_uploads
 from .answer import RagEngine
+from .api_uploads import principal, router as uploads_router
+from .auth import Principal, get_auth
+from .blobs import get_blob_store
 from .config import load_settings
+from .jobs import IngestWorker
 from .llm import LLMError
+from .registry import get_registry
 
 SCOPES = ("curated", "private", "community")
 PUBLIC_SCOPES = ["curated", "community"]
@@ -37,6 +43,7 @@ ALLOWED_ORIGINS = [
 
 _hits: dict[str, deque[float]] = defaultdict(deque)
 _engine: RagEngine | None = None
+_worker: IngestWorker | None = None
 
 
 def rate_limit(request: Request) -> None:
@@ -59,12 +66,31 @@ def engine() -> RagEngine:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    global _engine
+    global _engine, _worker
     settings = load_settings()
     _engine = RagEngine(settings)
     # Warm the embedder so the first real question is not the slow one.
     _engine.retriever.embedder.embed_query("warmup")
+
+    registry = get_registry(settings)
+    blobs = get_blob_store(settings)
+    _worker = IngestWorker(
+        settings,
+        store=_engine.retriever.store,
+        embedder=_engine.retriever.embedder,
+        blobs=blobs,
+    )
+    api_uploads.deps.registry = registry
+    api_uploads.deps.blobs = blobs
+    api_uploads.deps.auth = get_auth(settings)
+    api_uploads.deps.store = _engine.retriever.store
+    api_uploads.deps.settings = settings
+    api_uploads.deps.worker = _worker
+    _worker.start()
     yield
+    _worker.stop()
+    registry.close()
+    _worker = None
     _engine = None
 
 
@@ -77,9 +103,13 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    # Without this the browser cannot read Location on the 202 and the
+    # client has no way to find the job it just created.
+    expose_headers=["Location", "Retry-After"],
 )
+app.include_router(uploads_router)
 
 
 class AskRequest(BaseModel):
@@ -103,6 +133,10 @@ def health() -> dict[str, Any]:
         "provider": eng.provider_name,
         "embed_backend": eng.settings.embed_backend,
         "reranker": eng.settings.reranker,
+        "queue_depth": api_uploads.deps.registry.queue_depth()
+        if api_uploads.deps.registry
+        else 0,
+        "disk_free_mb": api_uploads.deps.blobs.free_mb() if api_uploads.deps.blobs else None,
     }
 
 
@@ -112,10 +146,11 @@ def subjects() -> dict[str, Any]:
 
 
 @app.post("/ask")
-def ask(payload: AskRequest, request: Request) -> dict[str, Any]:
+def ask(
+    payload: AskRequest, request: Request, who: Principal = Depends(principal)
+) -> dict[str, Any]:
     rate_limit(request)
-    if payload.scopes and "private" in payload.scopes:
-        # No auth layer yet, so there is no identity that could own private chunks.
+    if payload.scopes and "private" in payload.scopes and who.is_anonymous:
         raise HTTPException(401, "auth_required_for_private")
     eng = engine()
     if eng.retriever.count() == 0:
@@ -128,6 +163,7 @@ def ask(payload: AskRequest, request: Request) -> dict[str, Any]:
             exam_mode=payload.exam_mode,
             marks=payload.marks,
             scopes=payload.scopes or PUBLIC_SCOPES,
+            owner_id=who.user_id,
         )
     except LLMError as exc:
         raise HTTPException(502, str(exc)) from exc
