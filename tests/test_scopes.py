@@ -165,3 +165,52 @@ def test_unknown_tier_scores_zero_so_a_filter_mistake_cannot_promote_it():
     assert trust_of({"metadata": {"visibility": "community"}}) == 0.94
     assert trust_of({"metadata": {"visibility": "quarantined"}}) == 0.0
     assert trust_of({"metadata": {}}) == 1.0  # legacy chunks predate the tag
+
+
+# --------------------------- publishing a document ---------------------------
+
+
+def test_set_visibility_moves_every_chunk_and_reports_the_count(two_tenant_index):
+    store = two_tenant_index.store
+    assert store.count_by_source("u/alicedoc") == 1
+
+    moved = store.set_visibility("u/alicedoc", "community")
+    assert moved == 1
+
+
+def test_set_visibility_merges_metadata_rather_than_replacing_it(two_tenant_index):
+    """owner_id must survive publication or the document becomes un-takedownable."""
+    store = two_tenant_index.store
+    chunk_id = store.chunk_ids_for_source("u/alicedoc")[0]
+    store.set_visibility("u/alicedoc", "community")
+
+    row = store.collection.get(ids=[chunk_id], include=["metadatas", "documents"])
+    meta = row["metadatas"][0]
+    assert meta["visibility"] == "community"
+    assert meta["owner_id"] == "alice", "ownership lost on publish"
+    assert meta["page"] == 1 and meta["subject"] == "OS"
+    assert row["documents"][0] == PRIVATE_TEXT, "chunk text must not be rewritten"
+
+
+def test_publishing_flips_who_can_find_it(two_tenant_index):
+    question = "deadlock detection wait-for graph"
+    assert two_tenant_index.retrieve(question, k=5) == [] or all(
+        s.file != "Alice_Notes.pdf" for s in two_tenant_index.retrieve(question, k=5)
+    )
+
+    two_tenant_index.store.set_visibility("u/alicedoc", "community")
+
+    public = two_tenant_index.retrieve(question, k=5)
+    assert any(s.file == "Alice_Notes.pdf" for s in public), "approved doc must be public"
+    assert all(s.visibility != "private" for s in public)
+
+    still_private = two_tenant_index.retrieve(
+        question, scopes=["private"], owner_id="alice", k=5
+    )
+    assert still_private == [], "it left the private tier"
+
+
+def test_set_visibility_on_an_unknown_source_reports_zero(two_tenant_index):
+    """A silent no-op here would make Approve report success and publish nothing."""
+    assert two_tenant_index.store.set_visibility("u/does-not-exist", "community") == 0
+    assert two_tenant_index.store.count_by_source("u/does-not-exist") == 0

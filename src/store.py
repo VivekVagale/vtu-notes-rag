@@ -153,6 +153,34 @@ class VectorStore:
     def delete_by_source(self, source: str) -> None:
         self.collection.delete(where={"source": source})
 
+    def chunk_ids_for_source(self, source: str) -> list[str]:
+        """Ids only - metadatas come back as None, which is what we want here."""
+        if self.count() == 0:
+            return []
+        got = self.collection.get(where={"source": source}, include=[], limit=_MAX_SCAN)
+        return list(got.get("ids") or [])
+
+    def count_by_source(self, source: str) -> int:
+        return len(self.chunk_ids_for_source(source))
+
+    def set_visibility(self, source: str, visibility: str, batch_size: int = 256) -> int:
+        """Move every chunk of one document to another tier. Returns rows touched.
+
+        update() MERGES metadata (verified on chromadb 1.5.9) so owner_id, page
+        and subject survive, and the embedding and document body are untouched.
+        It is also a SILENT no-op on an id that does not exist - hence the count,
+        which the caller must treat as a failure when it comes back 0, or an
+        approval would report success having published nothing.
+        """
+        ids = self.chunk_ids_for_source(source)
+        for start in range(0, len(ids), batch_size):
+            window = ids[start : start + batch_size]
+            self.collection.update(
+                ids=window,
+                metadatas=[{"visibility": visibility} for _ in window],
+            )
+        return len(ids)
+
     # --- reads ---------------------------------------------------------
     def count(self) -> int:
         try:
