@@ -12,6 +12,7 @@ from .extractive import compose
 from .ingest import IngestStats, ingest
 from .llm import LLMError, LLMProvider, get_provider
 from .prompts import system_prompt, user_prompt
+from .store import PUBLIC_TIERS
 from .retrieve import Retriever, Source
 
 CITATION_RE = re.compile(r"\[([^\[\]]+?\.pdf),\s*p\.\s*(\d+)\]", re.IGNORECASE)
@@ -102,13 +103,18 @@ class RagEngine:
         exam_mode: bool = False,
         marks: int = 10,
         scopes: Sequence[str] | None = None,
+        owner_id: str | None = None,
     ) -> Answer:
         started = time.perf_counter()
         question = (question or "").strip()
         if not question:
             raise ValueError("question is empty")
 
-        sources = self.retriever.retrieve(question, k=k, subject=subject, scopes=scopes)
+        # Record the tiers actually searched, not the ones asked for.
+        effective = list(scopes) if scopes is not None else list(PUBLIC_TIERS)
+        sources = self.retriever.retrieve(
+            question, k=k, subject=subject, scopes=scopes, owner_id=owner_id
+        )
         model = "-"
 
         if not sources:
@@ -121,7 +127,7 @@ class RagEngine:
                 exam_mode=exam_mode,
                 marks=marks,
                 subject=subject,
-                scopes=list(scopes) if scopes else None,
+                scopes=effective,
                 elapsed_s=time.perf_counter() - started,
             )
 
@@ -149,7 +155,7 @@ class RagEngine:
             exam_mode=exam_mode,
             marks=marks,
             subject=subject,
-            scopes=list(scopes) if scopes else None,
+            scopes=effective,
             elapsed_s=time.perf_counter() - started,
             warnings=validate_citations(text, sources),
         )

@@ -23,11 +23,13 @@ _STOPWORDS = {
 
 
 #: Contributed material is searchable but never outranks vetted notes on a tie.
+#: An unseen tier scores 0.0 on purpose - a filter mistake must degrade to
+#: 'never wins', not to 'serves anyway'.
 TRUST = {"curated": 1.0, "private": 1.0, "community": 0.94}
 
 
 def trust_of(hit: dict[str, Any]) -> float:
-    return TRUST.get(str((hit.get("metadata") or {}).get("visibility", "curated")), 0.9)
+    return TRUST.get(str((hit.get("metadata") or {}).get("visibility", "curated")), 0.0)
 
 
 def _terms(text: str) -> list[str]:

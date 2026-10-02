@@ -7,7 +7,8 @@ are **grounded in those PDFs only**, with a `[file.pdf, p.14]` citation after
 every claim. If the notes do not contain the answer, the bot says
 `Not found in your notes` instead of inventing one.
 
-- Local embeddings (`BAAI/bge-small-en-v1.5`) - indexing costs nothing
+- Local embeddings (`BAAI/bge-small-en-v1.5`) - indexing costs nothing, and
+  `EMBED_BACKEND=onnx` runs them through onnxruntime with no torch at all
 - ChromaDB persisted to disk, hash check so re-ingest skips unchanged files
 - Page-level citations, subject filter, VTU exam-mode answers (5/10 marks)
 - Swappable LLM: Anthropic API, local Ollama, or a no-LLM extractive mode
@@ -83,7 +84,41 @@ Subject dropdown, k slider, reranker choice, exam-mode toggle with 5/10 marks,
 a re-index button, the answer, and one expander per source showing the file,
 the page and the full chunk text.
 
-## 6. Choosing the LLM (.env)
+## 6. Library tiers
+
+Every chunk carries a tier, so the same index can hold your own notes and other
+people's without the two mixing:
+
+| Tier | What it is | Who can retrieve it |
+|---|---|---|
+| `curated` | your own vetted notes, ingested from `data/pdfs/` | everyone |
+| `private` | an uploader's own file | only that uploader |
+| `community` | a contributed file the owner has approved | everyone, text + citation only |
+
+`DEFAULT_VISIBILITY` (default `curated`) is the tier stamped at ingest. Retrieval
+takes a `scopes` filter; omitting it searches the public tiers and never private
+material, and the `private` tier is reachable only through a positive owner
+predicate. Contributed chunks are ranked at 0.94x so they never outrank vetted
+notes on a tie, and an unrecognised tier scores 0.0 - a filter mistake degrades to
+"never wins" rather than "serves anyway".
+
+Upload and moderation endpoints are not built yet; the service is read-only.
+
+## 7. HTTP service (what a website calls)
+
+```bash
+uvicorn src.api:app --port 8000
+```
+
+`GET /health`, `GET /subjects`, `POST /ask`. It is the only process that touches
+the index or an LLM key - a browser never does. Per-IP rate limiting, CORS from
+`CORS_ORIGINS`, and request validation are on by default.
+
+```bash
+curl -X POST http://127.0.0.1:8000/ask -H "Content-Type: application/json" -d "{\"question\":\"What is Belady anomaly?\"}"
+```
+
+## 8. Choosing the LLM (.env)
 
 | `LLM_PROVIDER` | needs | notes |
 |---|---|---|
@@ -96,7 +131,7 @@ setup. It is a fallback, not a writer - switch to `anthropic` or `ollama` for
 answers in real prose. Override per run with
 `python -m src.cli --provider ollama ask "..."`.
 
-## 7. Evaluation
+## 9. Evaluation
 
 `eval/questions.json` holds question / expected-page pairs. The script reports
 how often the expected page comes back in the top-k, plus MRR:
@@ -111,16 +146,20 @@ correctly - it is not a benchmark, because the corpus is tiny and the questions
 were written against it. Replace the file with your own questions and pages once
 your real notes are indexed.
 
-## 8. Tests
+## 10. Tests
 
 ```bash
 python -m pytest
 ```
 
-33 tests, fully offline: they use a deterministic hash embedder (`EMBED_BACKEND=hash`)
-and the extractive provider, so nothing is downloaded and no API is called.
+57 tests, fully offline: they use a deterministic hash embedder (`EMBED_BACKEND=hash`)
+and the extractive provider, so nothing is downloaded and no API is called. They cover
+chunking, extraction, the ingest skip/update/delete paths, retrieval, citation
+validation, the HTTP endpoints, and tier isolation - including that one uploader's
+private chunks are unreachable by anyone else and that an empty scope returns nothing
+rather than everything.
 
-## 9. How it works
+## 11. How it works
 
 ```
 data/pdfs/<Subject>/<file>.pdf
@@ -160,7 +199,13 @@ data/index/ Chroma database + manifest.json (gitignored)
 
 Everything is an env var (see `.env.example`): `CHUNK_TOKENS`, `CHUNK_OVERLAP`,
 `TOP_K`, `FETCH_K`, `RERANKER` (`lexical` / `cross-encoder` / `none`),
-`EMBED_MODEL`, `LLM_MAX_TOKENS`, `LLM_TEMPERATURE`.
+`EMBED_MODEL`, `EMBED_BACKEND`, `DEFAULT_VISIBILITY`, `LLM_MAX_TOKENS`,
+`LLM_TEMPERATURE`.
+
+`EMBED_BACKEND` picks how the embedding model runs. `sentence-transformers` is the
+default and needs torch. `onnx` produces byte-identical vectors through onnxruntime
+with no torch installed and a much faster cold start, which is what a small server
+should use. `hash` is an offline stub for tests.
 
 Slide-style notes with a few words per page do better with
 `CHUNK_TOKENS=250 CHUNK_OVERLAP=40`. Dense textbook scans do better with the

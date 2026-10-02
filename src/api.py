@@ -85,7 +85,9 @@ app.add_middleware(
 class AskRequest(BaseModel):
     question: str = Field(min_length=3, max_length=500)
     subject: str | None = None
-    scopes: list[Literal["curated", "private", "community"]] | None = None
+    scopes: list[Literal["curated", "private", "community"]] | None = Field(
+        default=None, min_length=1, description="library tiers to search; omit for the public tiers"
+    )
     k: int | None = Field(default=None, ge=1, le=12)
     exam_mode: bool = False
     marks: Literal[5, 10] = 10
@@ -112,6 +114,9 @@ def subjects() -> dict[str, Any]:
 @app.post("/ask")
 def ask(payload: AskRequest, request: Request) -> dict[str, Any]:
     rate_limit(request)
+    if payload.scopes and "private" in payload.scopes:
+        # No auth layer yet, so there is no identity that could own private chunks.
+        raise HTTPException(401, "auth_required_for_private")
     eng = engine()
     if eng.retriever.count() == 0:
         raise HTTPException(503, "Index is empty - run ingestion first")

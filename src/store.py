@@ -17,6 +17,52 @@ class ChunkRecord:
     metadata: dict[str, Any]
 
 
+#: Tiers a caller with no identity may ever read.
+PUBLIC_TIERS = ("curated", "community")
+KNOWN_TIERS = ("curated", "community", "private")
+
+
+def _tier_clause(tiers: Sequence[str]) -> dict[str, Any]:
+    """Chroma rejects an empty $in and a one-element $and/$or, so never emit either."""
+    tiers = list(tiers)
+    return {"visibility": tiers[0]} if len(tiers) == 1 else {"visibility": {"$in": tiers}}
+
+
+def build_scope_where(
+    *,
+    subject: str | None = None,
+    tiers: Sequence[str],
+    owner_id: str | None = None,
+) -> dict[str, Any]:
+    """Where clause for a tier-scoped read.
+
+    Private chunks are reachable only through a positive owner predicate - never
+    through a negative one, because Chroma's $ne matches rows that lack the key
+    entirely (verified on 1.5.9), which would fail open straight into someone
+    else's notes.
+    """
+    wanted = list(dict.fromkeys(tiers))
+    if not wanted:
+        raise ValueError("at least one tier is required; an empty scope must return no sources")
+    unknown = [t for t in wanted if t not in KNOWN_TIERS]
+    if unknown:
+        raise ValueError(f"unknown tier(s): {', '.join(unknown)}")
+    if "private" in wanted and not owner_id:
+        raise ValueError("the private tier requires an owner predicate")
+
+    branches: list[dict[str, Any]] = []
+    shared = [t for t in wanted if t != "private"]
+    if shared:
+        branches.append(_tier_clause(shared))
+    if "private" in wanted:
+        branches.append({"$and": [{"visibility": "private"}, {"owner_id": owner_id}]})
+
+    clause = branches[0] if len(branches) == 1 else {"$or": branches}
+    if not subject:
+        return clause
+    return {"$and": [{"subject": subject}, clause]}
+
+
 def build_where(
     subject: str | None = None,
     source: str | None = None,

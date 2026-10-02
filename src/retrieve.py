@@ -8,7 +8,7 @@ from typing import Any, Sequence
 from .config import Settings, get_settings
 from .embeddings import Embedder, get_embedder
 from .rerank import Reranker, dedupe_by_page, get_reranker
-from .store import VectorStore, build_where
+from .store import PUBLIC_TIERS, VectorStore, build_scope_where
 
 
 @dataclass(frozen=True)
@@ -86,21 +86,29 @@ class Retriever:
         k: int | None = None,
         subject: str | None = None,
         scopes: Sequence[str] | None = None,
+        owner_id: str | None = None,
         fetch_k: int | None = None,
         keep_per_page: int = 2,
     ) -> list[Source]:
-        """scopes limits which library tiers are searched (curated/private/community)."""
+        """Search the given library tiers.
+
+        scopes=None falls back to the public tiers - never to an unfiltered read.
+        scopes=[] means the caller is entitled to nothing, so nothing comes back.
+        """
         question = (question or "").strip()
         if not question:
+            return []
+        if scopes is not None and not list(scopes):
             return []
         top_k = k or self.settings.top_k
         candidates = fetch_k or max(self.settings.fetch_k, top_k)
         if self.reranker.name == "none":
             candidates = top_k
 
-        where = build_where(
+        where = build_scope_where(
             subject=subject if subject and subject != "All" else None,
-            visibility=scopes,
+            tiers=list(scopes) if scopes else list(PUBLIC_TIERS),
+            owner_id=owner_id,
         )
         hits = self.store.query(self.embedder.embed_query(question), candidates, where)
         if not hits:

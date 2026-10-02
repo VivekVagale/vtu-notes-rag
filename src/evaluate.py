@@ -64,7 +64,12 @@ def evaluate(
     results: list[QuestionResult] = []
     for spec in questions:
         sources = retriever.retrieve(
-            spec.question, k=k, subject=spec.subject if use_subject_filter else None
+            spec.question,
+            k=k,
+            subject=spec.subject if use_subject_filter else None,
+            # Pinned: expected_page values are curated pages. Letting contributed
+            # chunks compete would make the hit rate stop meaning anything.
+            scopes=["curated"],
         )
         rank: int | None = None
         for position, src in enumerate(sources, start=1):

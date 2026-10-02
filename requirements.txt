@@ -2,6 +2,10 @@
 pymupdf>=1.24.0
 
 # --- local embeddings (free, no API) ---
+# EMBED_BACKEND=onnx needs only onnxruntime (pulled in by chromadb), tokenizers
+# and huggingface_hub - that is the server path, and it skips torch entirely.
+# The two below are needed only for EMBED_BACKEND=sentence-transformers and for
+# RERANKER=cross-encoder, which is the local-development path.
 sentence-transformers>=3.0.0
 torch>=2.2.0
 
@@ -15,6 +19,7 @@ requests>=2.31.0        # LLM_PROVIDER=ollama
 # --- web service (the site talks to this) ---
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9   # file uploads
 
 # --- config / UI ---
 python-dotenv>=1.0.0

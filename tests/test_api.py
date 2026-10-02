@@ -86,6 +86,22 @@ def test_ask_refuses_malformed_requests(client):
         == 422
     )
     assert client.post("/ask", json={}).status_code == 422
+    assert client.post("/ask", json={"question": "what is logging", "scopes": []}).status_code == 422
+
+
+def test_private_scope_is_refused_while_there_is_no_auth(client):
+    """Without an identity there is nobody who could own private chunks."""
+    response = client.post(
+        "/ask", json={"question": "what is logging", "scopes": ["private"]}
+    )
+    assert response.status_code == 401
+    assert response.json()["detail"] == "auth_required_for_private"
+
+
+def test_answer_reports_the_tiers_actually_searched(client):
+    body = client.post("/ask", json={"question": "What is two phase locking?"}).json()
+    assert body["scopes"] == ["curated", "community"]
+    assert all(s["visibility"] in {"curated", "community"} for s in body["sources"])
 
 
 def test_rate_limit_rejects_the_overflow(client, monkeypatch):

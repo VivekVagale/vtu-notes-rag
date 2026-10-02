@@ -12,6 +12,13 @@ install.log
 data/pdfs/**/*.pdf
 data/index/
 
+# OTHER PEOPLE'S uploads and the registry holding their emails.
+# These must never be committable, not even by `git add -A`.
+data/uploads/
+data/registry.db
+data/registry.db-wal
+data/registry.db-shm
+
 # local editor/agent config
 .claude/
 
