@@ -91,9 +91,16 @@ class Settings:
     reranker: str  # none | lexical | cross-encoder
     cross_encoder_model: str
 
-    # --- library tiers ---
+    # --- library tiers / uploads ---
     default_visibility: str
     injection_enforce: bool
+    registry_path: Path
+    upload_dir: Path
+    owner_email: str | None
+    upload_max_mb: int
+    upload_max_pages: int
+    quota_docs_total: int
+    quota_bytes_total: int
 
     # --- llm ---
     llm_provider: str  # anthropic | ollama | extractive
@@ -141,6 +148,16 @@ def load_settings(**overrides: Any) -> Settings:
         embed_batch_size=_int("EMBED_BATCH_SIZE", 32),
         default_visibility=_str("DEFAULT_VISIBILITY", "curated"),
         injection_enforce=_bool("INJECTION_ENFORCE", False),
+        # Both live OUTSIDE index_dir and pdf_dir on purpose: rebuilding the
+        # index deletes data/index, and anything under pdf_dir gets picked up
+        # by the curated CLI ingest.
+        registry_path=_path("REGISTRY_PATH", PROJECT_ROOT / "data" / "registry.db"),
+        upload_dir=_path("UPLOAD_DIR", PROJECT_ROOT / "data" / "uploads"),
+        owner_email=_opt_str("OWNER_EMAIL"),
+        upload_max_mb=_int("UPLOAD_MAX_MB", 25),
+        upload_max_pages=_int("UPLOAD_MAX_PAGES", 400),
+        quota_docs_total=_int("QUOTA_DOCS_TOTAL", 30),
+        quota_bytes_total=_int("QUOTA_BYTES_TOTAL", 314572800),
         top_k=_int("TOP_K", 5),
         fetch_k=_int("FETCH_K", 20),
         reranker=_str("RERANKER", "lexical").lower(),
