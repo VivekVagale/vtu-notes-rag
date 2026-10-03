@@ -98,11 +98,34 @@ people's without the two mixing:
 `DEFAULT_VISIBILITY` (default `curated`) is the tier stamped at ingest. Retrieval
 takes a `scopes` filter; omitting it searches the public tiers and never private
 material, and the `private` tier is reachable only through a positive owner
-predicate. Contributed chunks are ranked at 0.94x so they never outrank vetted
-notes on a tie, and an unrecognised tier scores 0.0 - a filter mistake degrades to
+predicate - never a negative one, because a `$ne` filter matches rows that lack
+the key at all. Contributed chunks rank at 0.94x so they never outrank vetted
+notes on a tie, and an unrecognised tier scores 0.0: a filter mistake degrades to
 "never wins" rather than "serves anyway".
 
-Upload and moderation endpoints are not built yet; the service is read-only.
+### How a contributed file travels
+
+```
+upload ──► private (only the uploader can retrieve it)
+             │  uploader offers it, with a rights attestation
+             ▼
+          pending ──► you approve ──► community (everyone, text + citation only)
+             │                         └─ withdraw or reject sends it back to private
+             └─ a page tripping a hard injection rule is never embedded at all,
+                and its document lands in a tier no scope allowlist contains
+```
+
+Uploads are capped (25MB, 400 pages, per-account quotas), deduplicated by
+SHA-256, and extracted in a separate killable process. One answer may lean on at
+most `COMMUNITY_CHUNKS_PER_ANSWER` contributed chunks, and only
+`COMMUNITY_SNIPPET_CHARS` of each ever reaches a browser.
+
+**One consequence worth knowing before you run a public library.**
+`EXTRACTIVE_COMMUNITY` defaults to `false`. The `extractive` provider copies
+source sentences verbatim, so with contributed notes it would republish a
+stranger's words under your own citation format. Those passages are dropped from
+the answer instead, with a warning. Serving a community library usefully means
+running a real LLM provider.
 
 ## 7. HTTP service (what a website calls)
 
@@ -110,9 +133,23 @@ Upload and moderation endpoints are not built yet; the service is read-only.
 uvicorn src.api:app --port 8000
 ```
 
-`GET /health`, `GET /subjects`, `POST /ask`. It is the only process that touches
-the index or an LLM key - a browser never does. Per-IP rate limiting, CORS from
-`CORS_ORIGINS`, and request validation are on by default.
+It is the only process that touches the index, the uploads or an LLM key - a
+browser never does. Per-IP rate limiting, CORS from `CORS_ORIGINS`, request
+validation and intake valves on queue depth and free disk are on by default.
+
+| | |
+|---|---|
+| `GET /health` `GET /subjects` `POST /ask` | ask questions, anonymous or signed in |
+| `POST /auth/dev-login` `GET /me` | local sign-in (disable with `ALLOW_DEV_LOGIN=false`) |
+| `POST /uploads` `GET /jobs/{id}` `GET /documents` | contribute a PDF and watch it index |
+| `PUT`/`DELETE /documents/{id}/offer` | offer it to the library, or take the offer back |
+| `GET /moderation/queue` `POST /moderation/{id}/approve` `.../reject` | yours alone, via `OWNER_EMAIL` |
+
+Try the whole flow locally:
+
+```bash
+OWNER_EMAIL=you@example.com uvicorn src.api:app --port 8000
+```
 
 ```bash
 curl -X POST http://127.0.0.1:8000/ask -H "Content-Type: application/json" -d "{\"question\":\"What is Belady anomaly?\"}"
@@ -152,12 +189,19 @@ your real notes are indexed.
 python -m pytest
 ```
 
-57 tests, fully offline: they use a deterministic hash embedder (`EMBED_BACKEND=hash`)
-and the extractive provider, so nothing is downloaded and no API is called. They cover
-chunking, extraction, the ingest skip/update/delete paths, retrieval, citation
-validation, the HTTP endpoints, and tier isolation - including that one uploader's
-private chunks are unreachable by anyone else and that an empty scope returns nothing
-rather than everything.
+163 tests, fully offline: they use a deterministic hash embedder
+(`EMBED_BACKEND=hash`) and the extractive provider, so nothing is downloaded and no
+API is called. Beyond chunking, extraction, ingest and retrieval they pin the
+things that would hurt if they broke:
+
+- one uploader's private chunks are unreachable by anyone else, and an empty
+  scope returns nothing rather than everything
+- somebody else's document answers 404, never 403
+- approval that publishes zero chunks is a failure, not a success
+- a page carrying an injection payload is never embedded
+- a contributed document cannot forge a passage boundary in the prompt
+- contact details in contributed notes never reach an answer
+- the injection scanner raises zero hard flags across the real curated corpus
 
 ## 11. How it works
 
