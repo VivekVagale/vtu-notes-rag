@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Sequence
 
 from .config import Settings, get_settings
@@ -24,6 +24,8 @@ class Source:
     visibility: str
     score: float
     rerank_score: float
+    #: Set for contributed chunks: how much of the body may reach a browser.
+    serve_chars: int | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -34,7 +36,14 @@ class Source:
         body = " ".join(self.text.split())
         return body if len(body) <= limit else body[: limit - 3].rstrip() + "..."
 
+    def served_text(self) -> tuple[str, bool]:
+        """The body as a client may see it, and whether it was cut."""
+        if self.serve_chars is None or len(self.text) <= self.serve_chars:
+            return self.text, False
+        return self.text[: self.serve_chars].rstrip() + "...", True
+
     def to_dict(self) -> dict[str, Any]:
+        body, truncated = self.served_text()
         return {
             "file": self.file,
             "page": self.page,
@@ -45,7 +54,8 @@ class Source:
             "score": round(self.score, 4),
             "rerank_score": round(self.rerank_score, 4),
             "citation": self.citation,
-            "text": self.text,
+            "text": body,
+            "text_truncated": truncated,
         }
 
 
@@ -114,8 +124,30 @@ class Retriever:
         if not hits:
             return []
         hits = self.reranker.rerank(question, hits, len(hits))
-        hits = dedupe_by_page(hits, keep_per_page=keep_per_page)[:top_k]
-        return [hit_to_source(h) for h in hits]
+        hits = dedupe_by_page(hits, keep_per_page=keep_per_page)
+        hits = self._cap_community(hits)[:top_k]
+        sources = [hit_to_source(h) for h in hits]
+        cap = self.settings.community_snippet_chars
+        return [
+            replace(s, serve_chars=cap) if s.visibility == "community" else s
+            for s in sources
+        ]
+
+    def _cap_community(self, hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """One answer may lean on only so much contributed material.
+
+        dedupe_by_page keys on source, so without this ten different
+        contributed documents could fill an answer between them.
+        """
+        limit = self.settings.community_chunks_per_answer
+        kept, used = [], 0
+        for hit in hits:
+            if str((hit.get("metadata") or {}).get("visibility")) == "community":
+                if used >= limit:
+                    continue
+                used += 1
+            kept.append(hit)
+        return kept
 
     # --- convenience for the UIs ---------------------------------------
     def subjects(self) -> list[str]:

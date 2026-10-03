@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any, Sequence
 
 from .config import NOT_FOUND_MESSAGE, Settings, get_settings
-from .extractive import compose
+from .extractive import compose, usable_sources
 from .ingest import IngestStats, ingest
 from .llm import LLMError, LLMProvider, get_provider
 from .prompts import system_prompt, user_prompt
@@ -16,6 +16,13 @@ from .store import PUBLIC_TIERS
 from .retrieve import Retriever, Source
 
 CITATION_RE = re.compile(r"\[([^\[\]]+?\.pdf),\s*p\.\s*(\d+)\]", re.IGNORECASE)
+
+# Contact details that must not ride out of a stranger's PDF into an answer.
+URL_RE = re.compile(r"https?://\S+|\bwww\.\S+", re.IGNORECASE)
+EMAIL_RE = re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b")
+PHONE_RE = re.compile(r"(?<!\d)(?:\+\d{1,3}[ -]?)?\d{10}(?!\d)")
+REDACTED = "[removed]"
+
 
 
 @dataclass
@@ -51,6 +58,41 @@ class Answer:
             "warnings": self.warnings,
             "sources": [s.to_dict() for s in self.sources],
         }
+
+
+def contacts_in(text: str) -> set[str]:
+    found: set[str] = set()
+    for pattern in (URL_RE, EMAIL_RE, PHONE_RE):
+        found.update(m.group(0) for m in pattern.finditer(text))
+    return found
+
+
+def scrub_contributed_contacts(
+    text: str, sources: Sequence[Source]
+) -> tuple[str, list[str]]:
+    """Strip URLs, emails and phone numbers that came from contributed notes.
+
+    A link inside somebody else's upload must not reach a reader wearing this
+    site's voice. The owner's own curated notes are left alone.
+    """
+    risky: set[str] = set()
+    for source in sources:
+        if source.visibility == "community":
+            risky.update(contacts_in(source.text))
+    if not risky:
+        return text, []
+
+    removed = []
+    for item in sorted(risky, key=len, reverse=True):
+        if item in text:
+            text = text.replace(item, REDACTED)
+            removed.append(item)
+    warnings = (
+        [f"removed {len(removed)} contact detail(s) carried in contributed notes"]
+        if removed
+        else []
+    )
+    return text, warnings
 
 
 def validate_citations(text: str, sources: Sequence[Source]) -> list[str]:
@@ -132,8 +174,35 @@ class RagEngine:
             )
 
         provider = self.provider
+        extra_warnings: list[str] = []
         if provider is None:  # extractive
-            text = compose(question, sources, exam_mode=exam_mode, marks=marks)
+            allow = self.settings.extractive_community
+            quotable = usable_sources(sources, allow_community=allow)
+            dropped = len(sources) - len(quotable)
+            if dropped:
+                extra_warnings.append(
+                    f"{dropped} contributed passage(s) left out: the extractive "
+                    "provider quotes verbatim. Set EXTRACTIVE_COMMUNITY=true or "
+                    "use a real LLM provider to include them."
+                )
+                sources = quotable
+            if not sources:
+                return Answer(
+                    question=question,
+                    text=NOT_FOUND_MESSAGE,
+                    sources=[],
+                    provider=self.provider_name,
+                    model="extractive",
+                    exam_mode=exam_mode,
+                    marks=marks,
+                    subject=subject,
+                    scopes=effective,
+                    elapsed_s=time.perf_counter() - started,
+                    warnings=extra_warnings,
+                )
+            text = compose(
+                question, sources, exam_mode=exam_mode, marks=marks, allow_community=allow
+            )
             model = "extractive"
         else:
             model = provider.model
@@ -146,6 +215,7 @@ class RagEngine:
             if not text.strip():
                 raise LLMError("provider returned an empty response")
 
+        text, scrub_warnings = scrub_contributed_contacts(text, sources)
         return Answer(
             question=question,
             text=text.strip(),
@@ -157,7 +227,7 @@ class RagEngine:
             subject=subject,
             scopes=effective,
             elapsed_s=time.perf_counter() - started,
-            warnings=validate_citations(text, sources),
+            warnings=extra_warnings + scrub_warnings + validate_citations(text, sources),
         )
 
     # --- passthroughs ---------------------------------------------------

@@ -107,6 +107,18 @@ def _bullet(sent: str, src: Source) -> str:
     return f"- {_clean(sent)} {src.citation}"
 
 
+def usable_sources(sources: Sequence[Source], *, allow_community: bool) -> list[Source]:
+    """Which passages this composer may quote.
+
+    It copies sentences verbatim, so with allow_community false a contributed
+    passage is dropped entirely rather than republished under this site's own
+    citation format.
+    """
+    if allow_community:
+        return list(sources)
+    return [s for s in sources if s.visibility != "community"]
+
+
 def compose(
     question: str,
     sources: Sequence[Source],
@@ -114,7 +126,9 @@ def compose(
     exam_mode: bool = False,
     marks: int = 10,
     min_relevance: float = 0.20,
+    allow_community: bool = False,
 ) -> str:
+    sources = usable_sources(sources, allow_community=allow_community)
     if not sources:
         return NOT_FOUND_MESSAGE
     if max(s.rerank_score for s in sources) < min_relevance:

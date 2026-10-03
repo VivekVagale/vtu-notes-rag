@@ -103,6 +103,9 @@ class Settings:
     quota_bytes_total: int
     auth_secret: str | None
     allow_dev_login: bool
+    extractive_community: bool
+    community_snippet_chars: int
+    community_chunks_per_answer: int
 
     # --- llm ---
     llm_provider: str  # anthropic | ollama | extractive
@@ -162,6 +165,12 @@ def load_settings(**overrides: Any) -> Settings:
         quota_bytes_total=_int("QUOTA_BYTES_TOTAL", 314572800),
         auth_secret=_opt_str("AUTH_SECRET"),
         allow_dev_login=_bool("ALLOW_DEV_LOGIN", True),
+        # The extractive composer copies source sentences verbatim, so with
+        # contributed text it would republish a stranger's words under this
+        # site's citation format. Off until a real model does the writing.
+        extractive_community=_bool("EXTRACTIVE_COMMUNITY", False),
+        community_snippet_chars=_int("COMMUNITY_SNIPPET_CHARS", 600),
+        community_chunks_per_answer=_int("COMMUNITY_CHUNKS_PER_ANSWER", 2),
         top_k=_int("TOP_K", 5),
         fetch_k=_int("FETCH_K", 20),
         reranker=_str("RERANKER", "lexical").lower(),

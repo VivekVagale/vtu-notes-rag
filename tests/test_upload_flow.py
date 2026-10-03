@@ -37,6 +37,11 @@ def client(mini_corpus, tmp_path, monkeypatch):
         "OWNER_EMAIL": OWNER_EMAIL,
         "AUTH_SECRET": "test-secret",
         "ALLOW_DEV_LOGIN": "true",
+        # This file tests the publication pipeline, not the quoting policy.
+        # With the shipped default the extractive composer refuses to quote
+        # contributed text at all, which has its own tests in
+        # test_contributed_limits.py.
+        "EXTRACTIVE_COMMUNITY": "true",
     }.items():
         monkeypatch.setenv(key, value)
 
@@ -275,3 +280,52 @@ def test_health_reports_the_intake_valves(client):
     body = client.get("/health").json()
     assert body["queue_depth"] == 0
     assert body["disk_free_mb"] > 0
+
+
+def test_the_shipped_default_will_not_quote_an_approved_upload(
+    mini_corpus, tmp_path, monkeypatch, pdf_bytes
+):
+    """The policy that bites in production, pinned.
+
+    EXTRACTIVE_COMMUNITY defaults to false, so with LLM_PROVIDER=extractive an
+    approved document is indexed, public and retrievable - and still never
+    quoted, because that composer copies sentences verbatim. Running the public
+    library on contributed notes means running a real LLM provider.
+    """
+    store = VectorStore(mini_corpus)
+    ingest(mini_corpus, store=store, embedder=HashEmbedder())
+    for key, value in {
+        "PDF_DIR": str(mini_corpus.pdf_dir),
+        "INDEX_DIR": str(mini_corpus.index_dir),
+        "CHROMA_COLLECTION": mini_corpus.collection,
+        "EMBED_BACKEND": "hash",
+        "LLM_PROVIDER": "extractive",
+        "REGISTRY_PATH": str(tmp_path / "r2.db"),
+        "UPLOAD_DIR": str(tmp_path / "u2"),
+        "OWNER_EMAIL": OWNER_EMAIL,
+        "AUTH_SECRET": "test-secret",
+        "ALLOW_DEV_LOGIN": "true",
+        "EXTRACTIVE_COMMUNITY": "false",
+    }.items():
+        monkeypatch.setenv(key, value)
+
+    api._hits.clear()
+    with TestClient(api.app) as client:
+        alice = login(client, "alice@example.com")
+        body = upload(client, alice["token"], pdf_bytes).json()
+        wait_for_job(client, alice["token"], body["job_id"])
+        doc_id = body["doc_id"]
+        client.put(
+            f"/documents/{doc_id}/offer", json={"attested": True}, headers=auth(alice["token"])
+        )
+        owner = login(client, OWNER_EMAIL)
+        approved = client.post(
+            f"/moderation/{doc_id}/approve", json={}, headers=auth(owner["token"])
+        )
+        assert approved.json()["chunks_published"] > 0, "it really was published"
+
+        answer = client.post(
+            "/ask", json={"question": "What is strict two phase locking?"}
+        ).json()
+        assert all(s["file"] != "Module2.pdf" for s in answer["sources"])
+        assert "contributed passage" in " ".join(answer["warnings"]), answer["warnings"]
