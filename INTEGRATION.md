@@ -19,6 +19,31 @@ interface; you call the API below.
 **It is not serverless-compatible.** It needs one always-on process with a
 persistent disk. See §6.
 
+### What runs where
+
+```
+student's browser                 your server                      outside
+─────────────────                 ───────────────                  ───────
+uploads PDF        ──HTTP──►      extract text (PyMuPDF)
+                                  embed chunks (ONNX, local, free)
+                                  store in Chroma
+asks a question    ──HTTP──►      embed question (local, free)
+                                  search + rerank → top pages
+                                  write the answer ──────────────►  LLM provider
+                   ◄──JSON───     answer + [file.pdf, p.14]
+```
+
+Your front end only ever speaks HTTP to this service. Nothing ships to the
+browser — no model, no API key, no vector work. Embedding and search run
+server-side at no per-use cost, and **uploading a PDF never calls an LLM at
+all**, so contributions cost you CPU and disk but no API spend.
+
+The only outbound dependency is writing the final prose. Even that is optional:
+with `LLM_PROVIDER=extractive` the service still returns the correct pages and
+citations, stitched from the notes' own sentences rather than written — see §7
+for why that mode excludes contributed material. And `ollama` means a model
+running on *your server*, not on the visitor's machine.
+
 ---
 
 ## 2. Decisions you need to make before deploying
