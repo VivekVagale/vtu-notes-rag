@@ -1,0 +1,28 @@
+# Dependencies for running the HTTP service only (src/api.py).
+#
+# Deliberately excludes torch, sentence-transformers, streamlit and pytest:
+# the service runs embeddings through onnxruntime (EMBED_BACKEND=onnx), which
+# produces identical vectors at roughly a seventh of the install size.
+# Use requirements.txt instead for local development, the Streamlit UI or the
+# cross-encoder reranker.
+
+# PDF extraction
+pymupdf>=1.24.0
+
+# embeddings: the ONNX path needs only these three
+onnxruntime>=1.17.0
+tokenizers>=0.15.0
+huggingface_hub>=0.23.0
+
+# vector store
+chromadb>=0.5.0
+
+# web service
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
+python-dotenv>=1.0.0
+
+# LLM providers (both optional at runtime; pick one with LLM_PROVIDER)
+anthropic>=0.40.0
+requests>=2.31.0

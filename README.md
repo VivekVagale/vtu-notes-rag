@@ -2,6 +2,9 @@
 
 **By [Vivek Vagale](https://github.com/VivekVagale)**
 
+> Integrating this into a site? Start with **[INTEGRATION.md](INTEGRATION.md)** —
+> what to deploy, the API contract, measured resource usage, and the known gaps.
+
 Ask questions about your own VTU syllabus and notes PDFs and get answers that
 are **grounded in those PDFs only**, with a `[file.pdf, p.14]` citation after
 every claim. If the notes do not contain the answer, the bot says
