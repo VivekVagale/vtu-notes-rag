@@ -17,6 +17,28 @@ every claim. If the notes do not contain the answer, the bot says
 - Swappable LLM: Anthropic API, local Ollama, or a no-LLM extractive mode
 - CLI + Streamlit UI + a retrieval eval script
 
+## What runs where
+
+```
+student's browser                 your server                      outside
+─────────────────                 ───────────────                  ───────
+uploads PDF        ──HTTP──►      extract text (PyMuPDF)
+                                  embed chunks (ONNX, local, free)
+                                  store in Chroma
+asks a question    ──HTTP──►      embed question (local, free)
+                                  search + rerank → top pages
+                                  write the answer ──────────────►  LLM provider
+                   ◄──JSON───     answer + [file.pdf, p.14]
+```
+
+A reader needs nothing but a browser - no model, no install, no API key.
+Embedding and search run on the server for free, and uploading a PDF never
+touches an LLM at all. The only thing that reaches outside is writing the final
+prose, and even that is optional: with `LLM_PROVIDER=extractive` the right pages
+and citations still come back, just stitched from the notes' own sentences
+instead of written. "Local Ollama" means local to *the server*, not to the
+reader.
+
 ---
 
 ## 1. Setup
